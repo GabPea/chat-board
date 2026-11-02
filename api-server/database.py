@@ -241,18 +241,19 @@ class Database:
         conn = self.get_connection()
         cursor = conn.cursor()
         clean_q = query.strip()
+        clean_exclude = exclude_username.strip().lower()
         if clean_q:
             cursor.execute('''
                 SELECT id, username, avatar FROM users
-                WHERE username LIKE ? AND username != ?
+                WHERE LOWER(username) LIKE LOWER(?) AND LOWER(username) != ?
                 LIMIT ?
-            ''', (f"%{clean_q}%", exclude_username.strip(), limit))
+            ''', (f"%{clean_q}%", clean_exclude, limit))
         else:
             cursor.execute('''
                 SELECT id, username, avatar FROM users
-                WHERE username != ?
+                WHERE LOWER(username) != ?
                 LIMIT ?
-            ''', (exclude_username.strip(), limit))
+            ''', (clean_exclude, limit))
         rows = cursor.fetchall()
         conn.close()
         return [dict(r) for r in rows]

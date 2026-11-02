@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -29,10 +29,13 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
   const [requests, setRequests] = useState<PendingRequests>({ received: [], sent: [] });
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchItem[]>([]);
+  const [isSearchActive, setIsSearchActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  const searchInputRef = useRef<TextInput>(null);
 
   const loadData = useCallback(async () => {
     if (!token) return;
@@ -76,28 +79,40 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
     return () => wsService.removeHandler(handler);
   }, [loadData]);
 
-  const handleSearch = async (text: string) => {
-    setSearchQuery(text);
-    const clean = text.trim();
-    if (!clean) {
-      setSearchResults([]);
-      return;
-    }
+  // Cerca utenti registrati (o carica tutti se query vuota)
+  const executeSearch = async (queryText: string) => {
+    if (!token) return;
     setSearching(true);
     try {
-      if (token) {
-        const results = await api.searchUsers(token, clean);
-        // Escludi se stessi
-        const filtered = results.filter(
-          (u) => u.username.toLowerCase() !== user?.username.toLowerCase()
-        );
-        setSearchResults(filtered);
-      }
+      const results = await api.searchUsers(token, queryText.trim());
+      // Escludi il proprio account
+      const filtered = results.filter(
+        (u) => u.username.toLowerCase() !== user?.username.toLowerCase()
+      );
+      setSearchResults(filtered);
     } catch (e) {
-      console.error("Errore ricerca:", e);
+      console.error("Errore ricerca utenti:", e);
     } finally {
       setSearching(false);
     }
+  };
+
+  const handleSearchChange = (text: string) => {
+    setSearchQuery(text);
+    setIsSearchActive(true);
+    executeSearch(text);
+  };
+
+  const handleOpenSearch = () => {
+    setIsSearchActive(true);
+    executeSearch(searchQuery);
+    searchInputRef.current?.focus();
+  };
+
+  const handleCloseSearch = () => {
+    setIsSearchActive(false);
+    setSearchQuery("");
+    setSearchResults([]);
   };
 
   const handleSendFriendRequest = async (targetUsername: string) => {
@@ -106,10 +121,8 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
       const msg = await api.sendFriendRequest(token, targetUsername);
       setActionNotice(msg || `Richiesta di amicizia inviata a @${targetUsername}`);
       setTimeout(() => setActionNotice(null), 3500);
-      loadData();
-      if (searchQuery.trim()) {
-        handleSearch(searchQuery);
-      }
+      await loadData();
+      await executeSearch(searchQuery);
     } catch (e: any) {
       setActionNotice(e.message || "Impossibile inviare richiesta di amicizia.");
       setTimeout(() => setActionNotice(null), 3500);
@@ -120,9 +133,12 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
     if (!token) return;
     try {
       const msg = await api.acceptFriendRequest(token, fromUsername);
-      setActionNotice(msg || `Hai accettato la richiesta di @${fromUsername}. Ora potete chattare!`);
+      setActionNotice(msg || `Hai accettato la richiesta di @${fromUsername}. Ora siete connessi!`);
       setTimeout(() => setActionNotice(null), 3500);
-      loadData();
+      await loadData();
+      if (isSearchActive) {
+        await executeSearch(searchQuery);
+      }
     } catch (e: any) {
       setActionNotice(e.message || "Errore accettazione richiesta.");
       setTimeout(() => setActionNotice(null), 3500);
@@ -135,7 +151,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
       await api.removeFriend(token, fromUsername);
       setActionNotice(`Richiesta di @${fromUsername} rifiutata.`);
       setTimeout(() => setActionNotice(null), 3000);
-      loadData();
+      await loadData();
     } catch (e: any) {}
   };
 
@@ -165,18 +181,27 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
         {/* Barra di Ricerca Utenti Registrati */}
         <View style={styles.searchBar}>
           <TextInput
+            ref={searchInputRef}
             style={styles.searchInput}
             placeholder="Cerca utenti registrati per nome..."
             placeholderTextColor="#64748B"
             value={searchQuery}
-            onChangeText={handleSearch}
+            onChangeText={handleSearchChange}
+            onFocus={() => {
+              setIsSearchActive(true);
+              if (searchResults.length === 0) executeSearch(searchQuery);
+            }}
             autoCapitalize="none"
           />
-          {searchQuery ? (
-            <TouchableOpacity onPress={() => handleSearch("")}>
-              <Text style={styles.clearSearch}>Cancella</Text>
+          {isSearchActive ? (
+            <TouchableOpacity onPress={handleCloseSearch} style={styles.clearSearchBtn}>
+              <Text style={styles.clearSearchText}>Chiudi</Text>
             </TouchableOpacity>
-          ) : null}
+          ) : (
+            <TouchableOpacity onPress={handleOpenSearch} style={styles.searchIconBtn}>
+              <Text style={styles.searchIconText}>Cerca</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -187,20 +212,29 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
         </View>
       )}
 
-      {/* ── MODALITÀ A: RISULTATI DI RICERCA UTENTI ── */}
-      {searchQuery.trim().length > 0 ? (
+      {/* ── MODALITÀ A: PANNELLO RICERCA / UTENTI REGISTRATI ── */}
+      {isSearchActive ? (
         <View style={styles.searchSection}>
-          <Text style={styles.sectionHeader}>
-            UTENTI REGISTRATI TROVATI ({searchResults.length})
-          </Text>
+          <View style={styles.searchSectionHeaderRow}>
+            <Text style={styles.sectionHeader}>
+              {searchQuery.trim()
+                ? `RISULTATI PER "${searchQuery}" (${searchResults.length})`
+                : `TUTTI GLI UTENTI REGISTRATI SUL RELAY (${searchResults.length})`}
+            </Text>
+            <TouchableOpacity onPress={() => executeSearch(searchQuery)}>
+              <Text style={styles.refreshSearchText}>Aggiorna</Text>
+            </TouchableOpacity>
+          </View>
 
           {searching ? (
-            <ActivityIndicator color={THEME.colors.primary} style={{ marginTop: 20 }} />
+            <ActivityIndicator color={THEME.colors.primary} style={{ marginTop: 25 }} />
           ) : searchResults.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyCardTitle}>Nessun utente trovato</Text>
+              <Text style={styles.emptyCardTitle}>Nessun altro utente trovato</Text>
               <Text style={styles.emptyCardSub}>
-                Nessun account registrato corrisponde a "{searchQuery}".
+                {searchQuery.trim()
+                  ? `Nessun account corrisponde a "${searchQuery}".`
+                  : "Nessun altro account è attualmente registrato su questo server."}
               </Text>
             </View>
           ) : (
@@ -240,7 +274,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                           <Text style={styles.userName}>@{item.username}</Text>
                         </View>
                         <Text style={styles.userMeta}>
-                          {item.is_online ? "Attivo ora" : "Non connesso"}
+                          {item.is_online ? "Attivo ora sul relay" : "Non connesso"}
                         </Text>
                       </View>
                     </View>
@@ -250,14 +284,15 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                       {isAlreadyFriend ? (
                         <TouchableOpacity
                           style={styles.chatNowBtn}
-                          onPress={() =>
+                          onPress={() => {
+                            handleCloseSearch();
                             onSelectFriend({
                               id: item.id,
                               username: item.username,
                               avatar: item.avatar,
                               is_online: item.is_online ?? false,
-                            })
-                          }
+                            });
+                          }}
                         >
                           <Text style={styles.chatNowBtnText}>Chatta</Text>
                         </TouchableOpacity>
@@ -270,7 +305,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                           style={styles.acceptSmallBtn}
                           onPress={() => handleAcceptRequest(item.username)}
                         >
-                          <Text style={styles.acceptSmallBtnText}>Accetta Amicizia</Text>
+                          <Text style={styles.acceptSmallBtnText}>Accetta</Text>
                         </TouchableOpacity>
                       ) : (
                         <TouchableOpacity
@@ -309,7 +344,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                     </View>
                     <View>
                       <Text style={styles.userName}>@{req.username}</Text>
-                      <Text style={styles.userMeta}>Vuole iniziare a chattare</Text>
+                      <Text style={styles.userMeta}>Vuole iniziare a chattare con te</Text>
                     </View>
                   </View>
                   <View style={styles.requestActions}>
@@ -332,7 +367,12 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
           )}
 
           {/* Lista Conversazioni Attive con Amici Accettati */}
-          <Text style={styles.sectionHeader}>CONVERSAZIONI ATTIVE ({friends.length})</Text>
+          <View style={styles.conversationsHeaderRow}>
+            <Text style={styles.sectionHeader}>CONVERSAZIONI ATTIVE ({friends.length})</Text>
+            <TouchableOpacity onPress={handleOpenSearch}>
+              <Text style={styles.findUsersLink}>+ Cerca Utenti</Text>
+            </TouchableOpacity>
+          </View>
 
           {loading ? (
             <ActivityIndicator color={THEME.colors.primary} style={{ marginTop: 40 }} />
@@ -341,10 +381,18 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
               <View style={styles.emptyIconBox}>
                 <Text style={styles.emptyIconGlyph}>§</Text>
               </View>
-              <Text style={styles.emptyTitle}>Nessuna conversazione</Text>
+              <Text style={styles.emptyTitle}>Nessuna conversazione attiva</Text>
               <Text style={styles.emptyDesc}>
-                Cerca un altro utente registrato nella barra in alto e inviagli una richiesta di amicizia per iniziare a chattare.
+                Cerca un altro utente registrato sul relay per inviargli una richiesta di amicizia e iniziare a chattare.
               </Text>
+
+              <TouchableOpacity
+                style={styles.exploreUsersBtn}
+                onPress={handleOpenSearch}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.exploreUsersBtnText}>Trova Utenti Registrati</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <FlatList
@@ -506,11 +554,25 @@ const styles = StyleSheet.create({
     color: "#F8FAFC",
     fontSize: 13,
   },
-  clearSearch: {
+  clearSearchBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  clearSearchText: {
     color: THEME.colors.primary,
     fontSize: 11,
     fontWeight: "700",
-    paddingHorizontal: 6,
+  },
+  searchIconBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  searchIconText: {
+    color: "#64748B",
+    fontSize: 11,
+    fontWeight: "600",
   },
   noticeBar: {
     backgroundColor: "rgba(14, 165, 233, 0.15)",
@@ -526,6 +588,31 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontFamily: THEME.fonts.mono,
     textAlign: "center",
+  },
+  conversationsHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingRight: 16,
+  },
+  findUsersLink: {
+    color: THEME.colors.primary,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  searchSectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingRight: 8,
+  },
+  refreshSearchText: {
+    color: THEME.colors.primary,
+    fontSize: 10,
+    fontWeight: "700",
+    fontFamily: THEME.fonts.mono,
   },
   sectionHeader: {
     color: "#94A3B8",
@@ -551,7 +638,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.08)",
     padding: 24,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 12,
   },
   emptyCardTitle: {
     color: "#FFF",
@@ -563,6 +650,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 4,
     textAlign: "center",
+    lineHeight: 16,
   },
   userCard: {
     flexDirection: "row",
@@ -830,7 +918,7 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     paddingHorizontal: 24,
-    paddingVertical: 40,
+    paddingVertical: 32,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -863,5 +951,17 @@ const styles = StyleSheet.create({
     marginTop: 6,
     lineHeight: 18,
     maxWidth: 280,
+  },
+  exploreUsersBtn: {
+    marginTop: 18,
+    backgroundColor: THEME.colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  exploreUsersBtnText: {
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });
