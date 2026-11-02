@@ -35,6 +35,39 @@ export default function App() {
     loadStoredAuth();
     loadStoredChats();
     setInitialized(true);
+
+    // Inietta stili globali per la barra di scorrimento cyber minimalista
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      const scrollStyleId = "cyber-scrollbar-style";
+      if (!document.getElementById(scrollStyleId)) {
+        const style = document.createElement("style");
+        style.id = scrollStyleId;
+        style.textContent = `
+          /* Cyber Minimalist Scrollbar */
+          ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+          }
+          ::-webkit-scrollbar-track {
+            background: #060913;
+          }
+          ::-webkit-scrollbar-thumb {
+            background: #1E293B;
+            border-radius: 4px;
+            border: 1px solid rgba(14, 165, 233, 0.2);
+          }
+          ::-webkit-scrollbar-thumb:hover {
+            background: #0EA5E9;
+            box-shadow: 0 0 10px rgba(14, 165, 233, 0.7);
+          }
+          * {
+            scrollbar-width: thin;
+            scrollbar-color: #1E293B #060913;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
   }, [loadStoredAuth, loadStoredChats]);
 
   useEffect(() => {

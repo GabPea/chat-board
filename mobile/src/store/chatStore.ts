@@ -13,8 +13,11 @@ export interface ChatMessage {
   ts: string;
   isMine: boolean;
   delivered?: boolean;
-  mediaType?: "image" | "video" | "audio";
+  mediaType?: "image" | "video" | "audio" | "file";
   mediaData?: string; // Base64 data URI
+  fileName?: string;
+  fileSize?: string;
+  fileHash?: string;
   timer?: number; // Secondi per autodistruzione
   viewed?: boolean;
   deleted?: boolean;

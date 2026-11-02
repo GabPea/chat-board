@@ -77,6 +77,9 @@ class WebSocketService {
       let displayContent = data.content || "";
       let mediaType = data.media_type;
       let mediaData = data.media_data;
+      let fileName = data.file_name;
+      let fileSize = data.file_size;
+      let fileHash = data.file_hash;
       let timer = data.timer;
       const isEncrypted = Boolean(data.is_encrypted && data.ciphertext);
 
@@ -92,6 +95,9 @@ class WebSocketService {
           displayContent = decrypted.content || "";
           mediaType = decrypted.mediaType;
           mediaData = decrypted.mediaData;
+          fileName = decrypted.fileName;
+          fileSize = decrypted.fileSize;
+          fileHash = decrypted.fileHash;
           timer = decrypted.timer ?? timer;
         } else {
           displayContent = "[ERRORE DECIFRATURA: PACCHETTO CORROTTO O CHIAVE DISALLINEATA]";
@@ -108,6 +114,9 @@ class WebSocketService {
         isEncrypted: isEncrypted,
         mediaType: mediaType,
         mediaData: mediaData,
+        fileName: fileName,
+        fileSize: fileSize,
+        fileHash: fileHash,
         timer: timer,
         ts: data.ts,
         isMine: false,
@@ -119,6 +128,10 @@ class WebSocketService {
       const chatStore = useChatStore.getState();
       chatStore.deleteMessage(data.sender, data.msg_id);
       chatStore.deleteMessage(data.recipient, data.msg_id);
+    } else if (data.type === "chat_purged") {
+      const chatStore = useChatStore.getState();
+      chatStore.clearChat(data.sender);
+      chatStore.clearChat(data.recipient);
     }
   }
 
@@ -155,9 +168,10 @@ class WebSocketService {
     recipient: string,
     content: string,
     msgId: string,
-    mediaType?: "image" | "video" | "audio",
+    mediaType?: "image" | "video" | "audio" | "file",
     mediaData?: string,
-    timer?: number
+    timer?: number,
+    extra?: { fileName?: string; fileSize?: string; fileHash?: string }
   ) {
     // 1. Cifra client-side
     const encResult = await cryptoEngine.encrypt(sender, recipient, {
@@ -165,6 +179,9 @@ class WebSocketService {
       mediaType,
       mediaData,
       timer,
+      fileName: extra?.fileName,
+      fileSize: extra?.fileSize,
+      fileHash: extra?.fileHash,
     });
 
     // 2. Invia al relay solo i byte cifrati
@@ -186,9 +203,10 @@ class WebSocketService {
     recipient: string,
     content: string,
     msgId: string,
-    mediaType?: "image" | "video" | "audio",
+    mediaType?: "image" | "video" | "audio" | "file",
     mediaData?: string,
-    timer?: number
+    timer?: number,
+    extra?: { fileName?: string; fileSize?: string; fileHash?: string }
   ) {
     return this.sendEncryptedDirectMessage(
       sender,
@@ -197,7 +215,8 @@ class WebSocketService {
       msgId,
       mediaType,
       mediaData,
-      timer
+      timer,
+      extra
     );
   }
 
@@ -219,6 +238,13 @@ class WebSocketService {
 
   deleteDirectMessage(recipient: string, msgId: string) {
     this.deleteMessageForBoth(recipient, msgId);
+  }
+
+  purgeChatForBoth(recipient: string) {
+    this.send({
+      action: "purge_chat",
+      recipient,
+    });
   }
 }
 

@@ -295,7 +295,21 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
                         session_manager.push_offline_message(recipient, del_payload)
                     await websocket.send_text(json.dumps(del_payload))
 
-            # ── 3. SEGNALE DI DIGITAZIONE ─────────────────────────────
+            # ── 3. INCINERA SESSIONE CHAT (REMOTE CHAT PURGE) ─────────
+            elif action == "purge_chat":
+                recipient = data.get("recipient", "").strip()
+                if recipient:
+                    purge_payload = {
+                        "type": "chat_purged",
+                        "sender": username,
+                        "recipient": recipient,
+                    }
+                    is_delivered = await manager.send_to_user(recipient, purge_payload)
+                    if not is_delivered:
+                        session_manager.push_offline_message(recipient, purge_payload)
+                    await websocket.send_text(json.dumps(purge_payload))
+
+            # ── 4. SEGNALE DI DIGITAZIONE ─────────────────────────────
             elif action == "typing":
                 recipient = data.get("recipient", "").strip()
                 is_typing = bool(data.get("is_typing", False))

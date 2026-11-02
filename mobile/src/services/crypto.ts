@@ -106,9 +106,12 @@ export const cryptoEngine = {
     recipient: string,
     payload: {
       content?: string;
-      mediaType?: string;
+      mediaType?: "image" | "video" | "audio" | "file";
       mediaData?: string;
       timer?: number;
+      fileName?: string;
+      fileSize?: string;
+      fileHash?: string;
     }
   ): Promise<{
     ciphertext: string;
@@ -186,9 +189,12 @@ export const cryptoEngine = {
     iv: string
   ): Promise<{
     content?: string;
-    mediaType?: "image" | "video" | "audio";
+    mediaType?: "image" | "video" | "audio" | "file";
     mediaData?: string;
     timer?: number;
+    fileName?: string;
+    fileSize?: string;
+    fileHash?: string;
   } | null> {
     try {
       const subtle = getSubtleCrypto();
