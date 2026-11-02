@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Database SQLite & local data
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Expo local cache
+.expo/
+
+# OS files
+.DS_Store
+Thumbs.db
