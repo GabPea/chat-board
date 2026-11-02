@@ -22,13 +22,14 @@ interface FriendsScreenProps {
 }
 
 export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   const { messages, unreadCounts } = useChatStore();
 
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [requests, setRequests] = useState<PendingRequests>({ received: [], sent: [] });
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchItem[]>([]);
+  const [allNetworkUsers, setAllNetworkUsers] = useState<UserSearchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -36,14 +37,16 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
   const loadData = useCallback(async () => {
     if (!token) return;
     try {
-      const [friendsData, requestsData] = await Promise.all([
+      const [friendsData, requestsData, networkPeers] = await Promise.all([
         api.getFriends(token),
         api.getFriendRequests(token),
+        api.searchUsers(token, ""),
       ]);
       setFriends(friendsData);
       setRequests(requestsData);
+      setAllNetworkUsers(networkPeers);
     } catch (e) {
-      console.error("Errore caricamento amici:", e);
+      console.error("Errore caricamento nodi:", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -52,7 +55,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
 
   useEffect(() => {
     loadData();
-    const timer = setInterval(loadData, 10000);
+    const timer = setInterval(loadData, 8000);
     return () => clearInterval(timer);
   }, [loadData]);
 
@@ -77,13 +80,13 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
 
   const handleSearch = async (text: string) => {
     setSearchQuery(text);
-    if (!text.trim() || text.length < 2) {
+    if (!text.trim()) {
       setSearchResults([]);
       return;
     }
     try {
       if (token) {
-        const results = await api.searchUsers(token, text);
+        const results = await api.searchUsers(token, text.trim());
         setSearchResults(results);
       }
     } catch (e) {
@@ -98,9 +101,8 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
       setActionNotice(msg);
       setTimeout(() => setActionNotice(null), 3000);
       loadData();
-      handleSearch(searchQuery);
     } catch (e: any) {
-      setActionNotice(e.message || "Errore invio richiesta");
+      setActionNotice(e.message || "Errore handshake");
       setTimeout(() => setActionNotice(null), 3000);
     }
   };
@@ -113,7 +115,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
       setTimeout(() => setActionNotice(null), 3000);
       loadData();
     } catch (e: any) {
-      setActionNotice(e.message || "Errore accettazione richiesta");
+      setActionNotice(e.message || "Errore accettazione");
       setTimeout(() => setActionNotice(null), 3000);
     }
   };
@@ -132,17 +134,27 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
     return chat[chat.length - 1];
   };
 
+  // Nodi suggeriti da mostrare se la lista contatti è limitata
+  const suggestedPeers = allNetworkUsers.filter(
+    (u) =>
+      u.username.toLowerCase() !== user?.username.toLowerCase() &&
+      !friends.some((f) => f.username.toLowerCase() === u.username.toLowerCase())
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* Top Header */}
+      {/* Header Cyber Tactical */}
       <View style={styles.header}>
         <View style={styles.titleRow}>
-          <Text style={styles.title}>Conversazioni Cifrate</Text>
+          <View>
+            <Text style={styles.title}>Nodi & Conversazioni</Text>
+            <Text style={styles.subtitle}>Canale Cifrato E2EE (Zero Log)</Text>
+          </View>
           <View style={styles.onlineBadge}>
             <View style={styles.onlineDot} />
-            <Text style={styles.onlineText}>RELAY E2EE ATTIVO</Text>
+            <Text style={styles.onlineText}>RELAY LIVE</Text>
           </View>
         </View>
 
@@ -150,7 +162,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
         <View style={styles.searchBar}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Cerca contatti o inserisci un username..."
+            placeholder="Cerca contatti o digita un alias..."
             placeholderTextColor="#64748B"
             value={searchQuery}
             onChangeText={handleSearch}
@@ -158,59 +170,100 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
           />
           {searchQuery ? (
             <TouchableOpacity onPress={() => handleSearch("")}>
-              <Text style={styles.clearSearch}>Annulla</Text>
+              <Text style={styles.clearSearch}>Reset</Text>
             </TouchableOpacity>
           ) : null}
         </View>
       </View>
 
-      {/* Action Notice */}
+      {/* Notifica di azione */}
       {actionNotice && (
         <View style={styles.noticeBar}>
           <Text style={styles.noticeText}>{actionNotice}</Text>
         </View>
       )}
 
-      {/* Search Results */}
-      {searchQuery.trim().length >= 2 && (
+      {/* RISULTATI RICERCA ATTIVA */}
+      {searchQuery.trim().length > 0 && (
         <View style={styles.searchSection}>
-          <Text style={styles.sectionHeader}>UTENTI TROVATI</Text>
+          <Text style={styles.sectionHeader}>NODI TROVATI ({searchResults.length})</Text>
           {searchResults.length === 0 ? (
-            <Text style={styles.emptyText}>Nessun utente trovato con questo nome.</Text>
+            <View style={styles.emptySearchCard}>
+              <Text style={styles.emptyText}>Nessun nodo registrato con "{searchQuery}".</Text>
+              <Text style={styles.emptySubtext}>Verifica l'alias o invitalo a registrarsi sul relay.</Text>
+            </View>
           ) : (
             <FlatList
               data={searchResults}
               keyExtractor={(item) => item.username}
               renderItem={({ item }) => {
-                const isAlreadyFriend = friends.some(
-                  (f) => f.username.toLowerCase() === item.username.toLowerCase()
-                );
                 const tag = getAvatarTag(item.avatar);
                 const color = getAvatarColor(item.avatar);
+                const isFriend = friends.some(
+                  (f) => f.username.toLowerCase() === item.username.toLowerCase()
+                );
+
                 return (
-                  <View style={styles.userCard}>
+                  <TouchableOpacity
+                    style={styles.userCard}
+                    activeOpacity={0.8}
+                    onPress={() =>
+                      onSelectFriend({
+                        id: item.id,
+                        username: item.username,
+                        avatar: item.avatar,
+                        is_online: item.is_online ?? false,
+                      })
+                    }
+                  >
                     <View style={styles.userLeft}>
                       <View style={[styles.userAvatar, { backgroundColor: color }]}>
                         <Text style={styles.userAvatarTag}>{tag}</Text>
+                        <View
+                          style={[
+                            styles.userStatusDot,
+                            item.is_online ? styles.statusOnline : styles.statusOffline,
+                          ]}
+                        />
                       </View>
                       <View>
-                        <Text style={styles.userName}>@{item.username}</Text>
-                        <Text style={styles.userMeta}>Contatto Cifrato E2EE</Text>
+                        <View style={styles.nameRow}>
+                          <Text style={styles.userName}>@{item.username}</Text>
+                          <View style={styles.miniE2EE}>
+                            <Text style={styles.miniE2EEText}>E2EE</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.userMeta}>
+                          {item.is_online ? "Attivo sul relay" : "Nodo silente"}
+                        </Text>
                       </View>
                     </View>
-                    {isAlreadyFriend ? (
-                      <View style={styles.alreadyFriendBadge}>
-                        <Text style={styles.alreadyFriendText}>Connesso</Text>
-                      </View>
-                    ) : (
+
+                    <View style={styles.userActions}>
                       <TouchableOpacity
-                        style={styles.addBtn}
-                        onPress={() => handleSendRequest(item.username)}
+                        style={styles.chatNowBtn}
+                        onPress={() =>
+                          onSelectFriend({
+                            id: item.id,
+                            username: item.username,
+                            avatar: item.avatar,
+                            is_online: item.is_online ?? false,
+                          })
+                        }
                       >
-                        <Text style={styles.addBtnText}>Collega</Text>
+                        <Text style={styles.chatNowBtnText}>Chatta</Text>
                       </TouchableOpacity>
-                    )}
-                  </View>
+
+                      {!isFriend && (
+                        <TouchableOpacity
+                          style={styles.addBtn}
+                          onPress={() => handleSendRequest(item.username)}
+                        >
+                          <Text style={styles.addBtnText}>+ Amico</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </TouchableOpacity>
                 );
               }}
             />
@@ -218,7 +271,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
         </View>
       )}
 
-      {/* Richieste di contatto in arrivo */}
+      {/* RICHIESTE IN ARRIVO */}
       {requests.received.length > 0 && !searchQuery && (
         <View style={styles.requestsSection}>
           <Text style={styles.sectionHeader}>
@@ -232,7 +285,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                 </View>
                 <View>
                   <Text style={styles.userName}>@{req.username}</Text>
-                  <Text style={styles.userMeta}>Richiesta di connessione</Text>
+                  <Text style={styles.userMeta}>Handshake di collegamento E2EE</Text>
                 </View>
               </View>
               <View style={styles.requestActions}>
@@ -254,20 +307,13 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
         </View>
       )}
 
-      {/* Lista Amici */}
+      {/* LISTA CONTATTI E NODI ATTIVI */}
       {!searchQuery && (
         <View style={styles.friendsSection}>
-          <Text style={styles.sectionHeader}>CONTATTI ({friends.length})</Text>
+          <Text style={styles.sectionHeader}>CONTATTI ATTIVI ({friends.length})</Text>
 
           {loading ? (
             <ActivityIndicator color={THEME.colors.primary} style={{ marginTop: 30 }} />
-          ) : friends.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyTitle}>Nessuna chat attiva</Text>
-              <Text style={styles.emptyDesc}>
-                Cerca un utente in alto per inviare una richiesta e avviare una conversazione cifrata.
-              </Text>
-            </View>
           ) : (
             <FlatList
               data={friends}
@@ -283,6 +329,68 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                 />
               }
               contentContainerStyle={{ paddingBottom: 20 }}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyTitle}>Nessuna chat recente</Text>
+                  <Text style={styles.emptyDesc}>
+                    Seleziona uno dei nodi consigliati qui sotto per avviare una conversazione cifrata istantanea.
+                  </Text>
+                </View>
+              }
+              ListFooterComponent={
+                suggestedPeers.length > 0 ? (
+                  <View style={styles.suggestedSection}>
+                    <Text style={styles.sectionHeaderSuggested}>
+                      ALTRI NODI DISPONIBILI SUL RELAY ({suggestedPeers.length})
+                    </Text>
+                    {suggestedPeers.map((peer) => (
+                      <TouchableOpacity
+                        key={peer.username}
+                        style={styles.suggestedRow}
+                        activeOpacity={0.8}
+                        onPress={() =>
+                          onSelectFriend({
+                            id: peer.id,
+                            username: peer.username,
+                            avatar: peer.avatar,
+                            is_online: peer.is_online ?? false,
+                          })
+                        }
+                      >
+                        <View style={styles.userLeft}>
+                          <View
+                            style={[
+                              styles.userAvatarSmall,
+                              { backgroundColor: getAvatarColor(peer.avatar) },
+                            ]}
+                          >
+                            <Text style={styles.userAvatarTagSmall}>
+                              {getAvatarTag(peer.avatar)}
+                            </Text>
+                          </View>
+                          <View>
+                            <Text style={styles.suggestedName}>@{peer.username}</Text>
+                            <Text style={styles.suggestedSub}>Tocca per avviare chat cifrata</Text>
+                          </View>
+                        </View>
+                        <TouchableOpacity
+                          style={styles.chatNowBtnSmall}
+                          onPress={() =>
+                            onSelectFriend({
+                              id: peer.id,
+                              username: peer.username,
+                              avatar: peer.avatar,
+                              is_online: peer.is_online ?? false,
+                            })
+                          }
+                        >
+                          <Text style={styles.chatNowBtnText}>Chatta</Text>
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null
+              }
               renderItem={({ item }) => {
                 const lastMsg = getLastMessage(item.username);
                 const unread = unreadCounts[item.username.toLowerCase()] || 0;
@@ -321,7 +429,7 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
                             item.is_online ? styles.statusOnlineText : styles.statusOfflineText,
                           ]}
                         >
-                          {item.is_online ? "Connesso" : "Silente"}
+                          {item.is_online ? "Attivo" : "Silente"}
                         </Text>
                       </View>
 
@@ -361,14 +469,15 @@ export default function FriendsScreen({ onSelectFriend }: FriendsScreenProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: THEME.colors.bgApp,
+    backgroundColor: "#060913",
   },
   header: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 12,
+    backgroundColor: "#0A0F1E",
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
+    borderBottomColor: "rgba(14, 165, 233, 0.2)",
   },
   titleRow: {
     flexDirection: "row",
@@ -377,15 +486,23 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   title: {
-    color: THEME.colors.textPrimary,
-    fontSize: 20,
-    fontWeight: "900",
-    letterSpacing: -0.5,
+    color: "#F8FAFC",
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  subtitle: {
+    color: "#94A3B8",
+    fontSize: 11,
+    marginTop: 2,
+    fontFamily: THEME.fonts.mono,
   },
   onlineBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    backgroundColor: "rgba(16, 185, 129, 0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.3)",
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
@@ -399,231 +516,268 @@ const styles = StyleSheet.create({
   },
   onlineText: {
     color: THEME.colors.online,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
+    fontFamily: THEME.fonts.mono,
+    letterSpacing: 0.5,
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: THEME.colors.bgInput,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    backgroundColor: "#060913",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
+    borderColor: "rgba(255, 255, 255, 0.1)",
   },
   searchInput: {
     flex: 1,
-    color: THEME.colors.textPrimary,
-    fontSize: 14,
+    color: "#F8FAFC",
+    fontSize: 13,
   },
   clearSearch: {
-    color: THEME.colors.textMuted,
-    fontSize: 12,
+    color: THEME.colors.primary,
+    fontSize: 11,
     fontWeight: "700",
     paddingHorizontal: 6,
   },
   noticeBar: {
-    backgroundColor: THEME.colors.bgCardLight,
+    backgroundColor: "rgba(14, 165, 233, 0.15)",
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.primary,
-    paddingVertical: 8,
-    paddingHorizontal: 20,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
     alignItems: "center",
   },
   noticeText: {
     color: THEME.colors.primary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
+    fontFamily: THEME.fonts.mono,
   },
   sectionHeader: {
-    color: THEME.colors.textMuted,
-    fontSize: 11,
+    color: "#94A3B8",
+    fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.8,
-    marginHorizontal: 20,
+    fontFamily: THEME.fonts.mono,
+    marginHorizontal: 16,
     marginTop: 14,
     marginBottom: 8,
   },
   searchSection: {
     flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
+  },
+  emptySearchCard: {
+    backgroundColor: "#0A0F1E",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.08)",
+    padding: 20,
+    alignItems: "center",
+    marginTop: 8,
   },
   emptyText: {
-    color: THEME.colors.textSecondary,
+    color: "#FFF",
     fontSize: 13,
-    textAlign: "center",
-    marginTop: 20,
+    fontWeight: "600",
+  },
+  emptySubtext: {
+    color: "#64748B",
+    fontSize: 11,
+    marginTop: 4,
   },
   userCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: THEME.colors.bgCard,
-    padding: 12,
-    borderRadius: 14,
-    marginBottom: 8,
+    backgroundColor: "#0D1424",
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
+    borderColor: "rgba(14, 165, 233, 0.2)",
+    padding: 12,
+    marginVertical: 4,
   },
   userLeft: {
     flexDirection: "row",
     alignItems: "center",
+    flex: 1,
   },
   userAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: 10,
+    position: "relative",
+  },
+  userAvatarSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
   },
   userAvatarTag: {
     color: "#FFF",
     fontSize: 12,
     fontWeight: "900",
   },
+  userAvatarTagSmall: {
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  userStatusDot: {
+    position: "absolute",
+    bottom: -1,
+    right: -1,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: "#0D1424",
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   userName: {
-    color: THEME.colors.textPrimary,
-    fontSize: 15,
+    color: "#FFF",
+    fontSize: 13,
     fontWeight: "700",
+    marginRight: 6,
   },
   userMeta: {
-    color: THEME.colors.textSecondary,
-    fontSize: 12,
+    color: "#64748B",
+    fontSize: 10,
+    marginTop: 2,
   },
-  addBtn: {
+  userActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  chatNowBtn: {
     backgroundColor: THEME.colors.primary,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
-  },
-  addBtnText: {
-    color: "#FFF",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  alreadyFriendBadge: {
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
     borderRadius: 6,
   },
-  alreadyFriendText: {
-    color: THEME.colors.textMuted,
+  chatNowBtnSmall: {
+    backgroundColor: THEME.colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  chatNowBtnText: {
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  addBtn: {
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  addBtnText: {
+    color: "#94A3B8",
     fontSize: 11,
     fontWeight: "600",
   },
+
+  // Richieste
   requestsSection: {
-    backgroundColor: "rgba(225, 29, 72, 0.06)",
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
-    paddingBottom: 8,
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
   requestCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: THEME.colors.bgCard,
-    marginHorizontal: 20,
-    marginBottom: 6,
-    padding: 10,
-    borderRadius: 12,
+    backgroundColor: "#0D1424",
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: THEME.colors.borderSubtle,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    padding: 12,
+    marginVertical: 4,
   },
   requestActions: {
     flexDirection: "row",
+    gap: 6,
   },
   acceptBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
     backgroundColor: THEME.colors.online,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   acceptBtnText: {
     color: "#FFF",
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "700",
   },
   declineBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: THEME.colors.danger,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
   },
   declineBtnText: {
-    color: THEME.colors.danger,
+    color: "#94A3B8",
     fontSize: 11,
-    fontWeight: "700",
   },
+
+  // Lista Amici
   friendsSection: {
     flex: 1,
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    marginTop: 50,
-  },
-  emptyTitle: {
-    color: THEME.colors.textPrimary,
-    fontSize: 17,
-    fontWeight: "700",
-    marginBottom: 6,
-  },
-  emptyDesc: {
-    color: THEME.colors.textSecondary,
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 18,
   },
   friendRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.borderSubtle,
+    borderBottomColor: "rgba(255, 255, 255, 0.04)",
   },
   avatarContainer: {
     position: "relative",
     marginRight: 12,
   },
   friendAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
   },
   friendAvatarTag: {
+    color: "#FFF",
     fontSize: 14,
     fontWeight: "900",
-    color: "#FFF",
   },
   statusBadge: {
     position: "absolute",
     bottom: -1,
     right: -1,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     borderWidth: 2,
-    borderColor: THEME.colors.bgApp,
+    borderColor: "#060913",
   },
   statusOnline: {
     backgroundColor: THEME.colors.online,
   },
   statusOffline: {
-    backgroundColor: THEME.colors.offline,
+    backgroundColor: "#475569",
   },
   friendDetails: {
     flex: 1,
@@ -632,17 +786,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 3,
   },
   friendNameWithBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
   },
   friendName: {
-    color: THEME.colors.textPrimary,
-    fontSize: 15,
+    color: "#F8FAFC",
+    fontSize: 14,
     fontWeight: "700",
+    marginRight: 6,
   },
   miniE2EE: {
     backgroundColor: "rgba(14, 165, 233, 0.12)",
@@ -653,34 +806,36 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
   },
   miniE2EEText: {
-    fontSize: 9,
-    fontWeight: "700",
     color: THEME.colors.primary,
-    letterSpacing: 0.3,
+    fontSize: 8,
+    fontWeight: "800",
+    fontFamily: THEME.fonts.mono,
   },
   statusIndicatorText: {
-    fontSize: 11,
-    fontWeight: "500",
+    fontSize: 10,
+    fontFamily: THEME.fonts.mono,
   },
   statusOnlineText: {
     color: THEME.colors.online,
+    fontWeight: "700",
   },
   statusOfflineText: {
-    color: THEME.colors.textMuted,
+    color: "#64748B",
   },
   friendBottomRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginTop: 4,
   },
   lastMessageText: {
+    color: "#94A3B8",
+    fontSize: 12,
     flex: 1,
-    color: THEME.colors.textSecondary,
-    fontSize: 13,
-    marginRight: 8,
+    marginRight: 10,
   },
   lastMessageUnread: {
-    color: THEME.colors.textPrimary,
+    color: "#FFF",
     fontWeight: "700",
   },
   unreadBadge: {
@@ -696,5 +851,56 @@ const styles = StyleSheet.create({
     color: "#FFF",
     fontSize: 10,
     fontWeight: "800",
+  },
+  emptyContainer: {
+    paddingHorizontal: 24,
+    paddingVertical: 24,
+    alignItems: "center",
+  },
+  emptyTitle: {
+    color: "#F8FAFC",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  emptyDesc: {
+    color: "#64748B",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 16,
+  },
+
+  // Suggested Section
+  suggestedSection: {
+    marginTop: 10,
+    paddingHorizontal: 16,
+  },
+  sectionHeaderSuggested: {
+    color: "#38BDF8",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    fontFamily: THEME.fonts.mono,
+    marginBottom: 8,
+  },
+  suggestedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#0A0F1E",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(14, 165, 233, 0.15)",
+    padding: 10,
+    marginVertical: 4,
+  },
+  suggestedName: {
+    color: "#FFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  suggestedSub: {
+    color: "#64748B",
+    fontSize: 10,
   },
 });

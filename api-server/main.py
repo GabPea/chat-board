@@ -109,7 +109,7 @@ def update_me(req: UpdateProfileRequest, x_session_token: Optional[str] = Header
 
 
 @app.get("/api/search-users")
-def search_users(q: str = Query(..., min_length=2), x_session_token: Optional[str] = Header(None)):
+def search_users(q: str = Query("", min_length=0), x_session_token: Optional[str] = Header(None)):
     session = require_user(x_session_token)
     results = db.search_users(q, exclude_username=session["username"])
     for r in results:
@@ -352,7 +352,12 @@ if os.path.exists(DIST_DIR):
             return FileResponse(target_file)
         index_file = os.path.join(DIST_DIR, "index.html")
         if os.path.isfile(index_file):
-            return FileResponse(index_file)
+            no_cache_headers = {
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            }
+            return FileResponse(index_file, headers=no_cache_headers)
         raise HTTPException(status_code=404, detail="Frontend non trovato.")
 else:
     @app.get("/")

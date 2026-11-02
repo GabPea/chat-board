@@ -69,8 +69,7 @@ export const api = {
     return await res.json();
   },
 
-  async searchUsers(token: string, query: string): Promise<UserSearchItem[]> {
-    if (!query.trim()) return [];
+  async searchUsers(token: string, query: string = ""): Promise<UserSearchItem[]> {
     const res = await fetch(`${SERVER_URL}/api/search-users?q=${encodeURIComponent(query.trim())}`, {
       headers: getHeaders(token),
     });
