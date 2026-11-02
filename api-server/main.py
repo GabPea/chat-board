@@ -320,7 +320,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
 # SERVE FRONTEND PWA BUNDLE (SINGLE-ORIGIN HOSTING)
 # ─────────────────────────────────────────────────────────────────
 
-DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "mobile", "dist"))
+LOCAL_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "dist"))
+PARENT_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "mobile", "dist"))
+DIST_DIR = LOCAL_DIST if os.path.exists(LOCAL_DIST) else PARENT_DIST
+
 if os.path.exists(DIST_DIR):
     expo_static = os.path.join(DIST_DIR, "_expo")
     if os.path.exists(expo_static):
@@ -337,6 +340,14 @@ if os.path.exists(DIST_DIR):
         if os.path.isfile(index_file):
             return FileResponse(index_file)
         raise HTTPException(status_code=404, detail="Frontend non trovato.")
+else:
+    @app.get("/")
+    def root_fallback():
+        return {
+            "status": "active",
+            "message": "Sovereign Cyber Relay API is running.",
+            "health": "/api/health",
+        }
 
 
 if __name__ == "__main__":
