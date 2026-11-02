@@ -34,12 +34,25 @@ export const setCustomRelayUrl = (url: string | null): void => {
   }
 };
 
-const envUrl = process.env.EXPO_PUBLIC_API_URL;
-const customUrl = getCustomRelayUrl();
-const host = getRelayHost();
-export const SERVER_URL = customUrl
-  ? customUrl.replace(/\/$/, "")
-  : envUrl
-  ? envUrl.replace(/\/$/, "")
-  : `http://${host}:${DEFAULT_PORT}`;
+const getServerUrl = (): string => {
+  const customUrl = getCustomRelayUrl();
+  if (customUrl) return customUrl.replace(/\/$/, "");
+
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl) return envUrl.replace(/\/$/, "");
+
+  if (Platform.OS === "web" && typeof window !== "undefined" && window.location) {
+    const loc = window.location;
+    // Se siamo sul dev server di Expo (porta 8081 o 19006), punta alla porta 8000 del backend locale
+    if (loc.port === "8081" || loc.port === "19006") {
+      return `http://${loc.hostname || "127.0.0.1"}:8000`;
+    }
+    // Altrimenti (Render, Cloudflare Tunnel, Produzione cloud o single-origin) usa l'origine esatta
+    return loc.origin;
+  }
+
+  return "http://127.0.0.1:8000";
+};
+
+export const SERVER_URL = getServerUrl();
 export const WS_URL = SERVER_URL.replace(/^http/, "ws");
